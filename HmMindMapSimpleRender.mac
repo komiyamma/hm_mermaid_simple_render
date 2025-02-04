@@ -1,0 +1,171 @@
+﻿/*
+ * CC0 1.0 Universal
+ */
+
+jsmode "WebView2\\" + currentmacrofilename;
+
+js {
+
+const renderPaneName = "HmMindMapSimpleRender";
+
+if (typeof(intervalHandle) != "undefined") {
+    hidemaru.clearInterval(intervalHandle);
+}
+
+var intervalHandle; // 宣言だけ;
+
+function getCurrentTotalHtml(text) {
+
+    const htmlTemplate = 
+    `
+    <html>
+    <head>
+    <title>Mindmap</title>
+    <script type='module'>
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({ startOnLoad: true, theme: 'default', securityLevel: 'loose'});
+    </script>
+    <style>
+    .mermaid { display: none; }
+    </style>
+    </head>
+    <body>
+    <div class='mermaid'>
+    ${text}
+    </div>
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+        let mermaidDiv = document.querySelector('.mermaid');
+        mermaidDiv.style.display = 'block';
+    });
+    </script>
+    </body>
+    </html>
+    `;
+
+    return htmlTemplate;
+}
+
+function saveHtmlFile(fullPath, htmlText) {
+    const saveSuccess = hidemaru.saveTextFile(fullPath, htmlText, "utf8");
+}
+
+function isMindMapText(text) {
+    // 最初の行にmindmapがなければ弾く
+    const firstLine = text.split('\n')[0];
+    const isMindMap = firstLine.toLowerCase().includes('mindmap');
+    return isMindMap;
+}
+
+
+function isNotDetectedOperation() {
+
+    /*
+    ○ 0x00000002 ウィンドウ移動/サイズ変更中
+    × 0x00000004 メニュー操作中
+    × 0x00000008 システムメニュー操作中
+    × 0x00000010 ポップアップメニュー操作中
+    ○ 0x00000100 IME入力中
+    × 0x00000200 何らかのダイアログ表示中
+    × 0x00000400 ウィンドウがDisable状態
+    × 0x00000800 非アクティブなタブまたは非表示のウィンドウ
+    × 0x00001000 検索ダイアログの疑似モードレス状態
+    ○ 0x00002000 なめらかスクロール中
+    ○ 0x00004000 中ボタンによるオートスクロール中
+    ○ 0x00008000 キーやマウスの操作直後
+    ○ 0x00010000 何かマウスのボタンを押している
+    × 0x00020000 マウスキャプチャ状態(ドラッグ状態)
+    ○ 0x00040000 Hidemaru_CheckQueueStatus相当
+    */
+    const s = hidemaru.getInputStates();
+    const notAllowedMask = 
+          0x00000004 | 0x00000008 | 0x00000010 | 
+          0x00000200 | 0x00000400 | 0x00000800 | 
+          0x00001000 | 0x00020000;
+
+    return (s & notAllowedMask) != 0;
+}
+
+let fso = null;
+let lastFileModified = 0;
+function getFileLastModifyUpdated() {
+    if (!fso) { fso = hidemaru.createObject("Scripting.FileSystemObject"); }
+
+    let isDiff = false;
+    const filepath = hidemaru.getFileFullPath();
+    if (filepath) {
+        try {
+            const fileobj = fso.GetFile(filepath);
+            const modify = fileobj.DateLastModified;
+            if (modify != lastFileModified) {
+                lastFileModified = modify;
+                isDiff = true;
+            }
+        }
+        catch (e) {
+        }
+    }
+    return isDiff;
+}
+
+function main() {
+
+    var curTotalText = hidemaru.getTotalText();
+    if (!isMindMapText(curTotalText)) {
+        return;
+    }
+    const tempFolder = getenv("temp");
+    const tempHtmlFullPath = `${tempFolder}\\${basename2()}.html`;
+    const htmlText = getCurrentTotalHtml(curTotalText);
+    saveHtmlFile(tempHtmlFullPath, htmlText);
+    getFileLastModifyUpdated();
+
+    renderpanecommand ( 
+    {
+        target: renderPaneName,
+        url : tempHtmlFullPath,
+        watch: 0,
+        watchsave: 0,
+        initialize: "async",
+        show: 1,
+        size : 800
+    }
+    );
+
+    var oldTotalText = curTotalText;
+    var lastUpdateCount = 0;
+    intervalHandle = hidemaru.setInterval(() => {
+
+        // ヤバそうな操作の最中はパス
+        if (isNotDetectedOperation()) {
+            return;
+        }
+
+        // 何も更新してないっぽいならパス
+        const curUpdateCount = updatecount();
+        if (lastUpdateCount == curUpdateCount) {
+            return;
+        }
+
+        lastUpdateCount = curUpdateCount;
+
+        // 最終書き込のタイムスタンプが変化した
+        const isFileTimeModify = getFileLastModifyUpdated();
+        if (isFileTimeModify) {
+            const curTotalText = hidemaru.getTotalText();
+            const htmlText = getCurrentTotalHtml(curTotalText);
+            saveHtmlFile(tempHtmlFullPath, htmlText);
+
+            renderpanecommand ( {
+                target: renderPaneName,
+                url: "javascript: location.reload()"
+            }
+            );
+        }
+
+    }, 1000);
+}
+
+main();
+
+}
