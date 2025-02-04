@@ -108,16 +108,22 @@ function getFileLastModifyUpdated() {
     return isDiff;
 }
 
+function writeLineOutputPane(msg) {
+    let dll = loaddll("HmOutputPane.dll");
+    dll.dllFuncW.OutputW(hidemaru.getCurrentWindowHandle(), msg + "\r\n");
+}
+
 function main() {
 
     var curTotalText = hidemaru.getTotalText();
-    if (!isMindMapText(curTotalText)) {
-        return;
-    }
+
     const tempFolder = getenv("temp");
     const tempHtmlFullPath = `${tempFolder}\\${basename2()}.html`;
     const htmlText = getCurrentTotalHtml(curTotalText);
     saveHtmlFile(tempHtmlFullPath, htmlText);
+    writeLineOutputPane(`${tempHtmlFullPath}:0 `);
+
+
     getFileLastModifyUpdated();
 
     renderpanecommand ( 
