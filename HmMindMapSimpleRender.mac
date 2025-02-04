@@ -6,7 +6,7 @@ jsmode "WebView2\\" + currentmacrofilename;
 
 js {
 
-const renderPaneName = "HmMindMapSimpleRender";
+const renderPaneName = "HmMermaidSimpleRender";
 
 if (typeof(intervalHandle) != "undefined") {
     hidemaru.clearInterval(intervalHandle);
