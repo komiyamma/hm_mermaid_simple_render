@@ -49,14 +49,6 @@ function saveHtmlFile(fullPath, htmlText) {
     const saveSuccess = hidemaru.saveTextFile(fullPath, htmlText, "utf8");
 }
 
-function isMindMapText(text) {
-    // 最初の行にmindmapがなければ弾く
-    const firstLine = text.split('\n')[0];
-    const isMindMap = firstLine.toLowerCase().includes('mindmap');
-    return isMindMap;
-}
-
-
 function isNotDetectedOperation() {
 
     /*
@@ -137,7 +129,6 @@ function main() {
     }
     );
 
-    var oldTotalText = curTotalText;
     var lastUpdateCount = 0;
     intervalHandle = hidemaru.setInterval(() => {
 
