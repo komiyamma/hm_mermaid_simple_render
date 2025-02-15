@@ -1,4 +1,5 @@
 ﻿/*
+ * HmMermaidSimpleRender 1.1.0.0
  * CC0 1.0 Universal
  */
 
@@ -8,12 +9,19 @@ js {
 
 const renderPaneName = "HmMermaidSimpleRender";
 
+
+// 前回マクロを実行した際の、tickがまだ継続しているなら、クリアする。
 if (typeof(intervalHandle) != "undefined") {
     hidemaru.clearInterval(intervalHandle);
 }
 
-var intervalHandle; // 宣言だけ;
 
+var intervalHandle; // 宣言だけ。js{ }から脱出しても変数を次回マクロ実行時にも残すため、var にする。
+
+
+// HTMLのテンプレート。
+// このテンプレートの中の${text}の部分に、
+// 秀丸の編集エリアのテキストを当てはめるためのもの
 function getCurrentTotalHtml(text) {
 
     const htmlTemplate = 
@@ -45,10 +53,12 @@ document.addEventListener('DOMContentLoaded', () => {
     return htmlTemplate;
 }
 
+// 対象のテキスト内容をutf8で保存
 function saveHtmlFile(fullPath, htmlText) {
     const saveSuccess = hidemaru.saveTextFile(fullPath, htmlText, "utf8");
 }
 
+// この関数で true が返ってくる時は、危険性があるので、javascriptのTickで処理をしない。
 function isNotDetectedOperation() {
 
     /*
@@ -77,6 +87,7 @@ function isNotDetectedOperation() {
     return (s & notAllowedMask) != 0;
 }
 
+// 前回のチェックと比べてファイルの最終更新日時は変化したのか？
 let fso = null;
 let lastFileModified = 0;
 function getFileLastModifyUpdated() {
@@ -99,24 +110,40 @@ function getFileLastModifyUpdated() {
     return isDiff;
 }
 
+// メッセージをアウトプット枠へと出力
 function writeLineOutputPane(msg) {
     let dll = loaddll("HmOutputPane.dll");
     dll.dllFuncW.OutputW(hidemaru.getCurrentWindowHandle(), msg + "\r\n");
 }
 
+// 現在秀丸で編集しているテキストを、テンプレートを利用して、TEMPフォルダに保存
+function saveCurrentTextToTempHtmlFile(curTotalText, tempHtmlFullPath) {
+
+    // テンプレートに現在の編集エリアのテキスト内容を当てはめたものを取得
+    const htmlText = getCurrentTotalHtml(curTotalText);
+
+    // それをTEMPフォルダに保存
+    saveHtmlFile(tempHtmlFullPath, htmlText);
+}
+
+
+// メインの処理
 function main() {
 
-    var curTotalText = hidemaru.getTotalText();
-
+    // TEMPフォルダに、
     const tempFolder = getenv("temp");
     const tempHtmlFullPath = `${tempFolder}\\${basename2()}.html`;
-    const htmlText = getCurrentTotalHtml(curTotalText);
-    saveHtmlFile(tempHtmlFullPath, htmlText);
+
+    // 現在の秀丸のテキスト内容をもとにHTMLテンプレートを当てはめて、TEMPフォルダにファイルを保存
+    saveCurrentTextToTempHtmlFile(gettotaltext(), tempHtmlFullPath);
+
+    // 取り出しやすいように、
     writeLineOutputPane(`${tempHtmlFullPath}:0 `);
 
-
+    // 開始時点を最終更新時とする。
     getFileLastModifyUpdated();
 
+    // 指定のパラメータでレンダーペインを開く。browserpanecommand にして、targetを "_each" にしてもほぼ同じこと
     renderpanecommand ( 
     {
         target: renderPaneName,
@@ -129,29 +156,55 @@ function main() {
     }
     );
 
-    var lastUpdateCount = 0;
+    const intervalTickTime = 1000; // hidemaru.setIntervalの間隔。この間隔は担保されないので注意。
+                                   // (実行の予約は概ね正確にこの間隔となるが、関数の実行は全く違う)
+
+    let lastUpdateCount = 0; // 
+
+    let lastTickCount = tickcount(); // Windowsが起動されてからの経過時間
+
+    // 指定の間隔で
     intervalHandle = hidemaru.setInterval(() => {
 
+        // ----------------------------------------------------------------
         // ヤバそうな操作の最中はパス
         if (isNotDetectedOperation()) {
             return;
         }
 
-        // 何も更新してないっぽいならパス
-        const curUpdateCount = updatecount();
-        if (lastUpdateCount == curUpdateCount) {
+        // ----------------------------------------------------------------
+        // 何も更新してないっぽいならパス。CPU負担を軽くするためのもの。
+        const currentUpdateCount = updatecount();
+        if (lastUpdateCount == currentUpdateCount) {
             return;
         }
 
-        lastUpdateCount = curUpdateCount;
+        // 最後にチェックしたupdatecountを保存しておく。
+        lastUpdateCount = currentUpdateCount;
 
-        // 最終書き込のタイムスタンプが変化した
-        const isFileTimeModify = getFileLastModifyUpdated();
-        if (isFileTimeModify) {
-            const curTotalText = hidemaru.getTotalText();
-            const htmlText = getCurrentTotalHtml(curTotalText);
-            saveHtmlFile(tempHtmlFullPath, htmlText);
+        // ----------------------------------------------------------------
+        // 本当にタイム差分が経過していることをチェックする。
+        const currentTickCount = tickcount();
 
+        // 経過した時間をもとめる。
+        const elapsedTickTime = currentTickCount - lastTickCount;
+
+        // それが指定のものよりも遥かに小さい(半分すらない)なら、早いタイミングでTickが来すぎているので、一旦スキップ
+        if (elapsedTickTime < (intervalTickTime * 0.5)) {
+            return;
+        }
+
+        lastTickCount = tickCount;
+
+        // ----------------------------------------------------------------
+        // 現在編集中のファイルの最終書き込のタイムスタンプが変化しか？
+        const isFileLastModifyUpdated = getFileLastModifyUpdated();
+        if (isFileLastModifyUpdated) {
+
+            // 現在の秀丸のテキスト内容をもとにHTMLテンプレートを当てはめて、TEMPフォルダにファイルを保存
+            saveCurrentTextToTempHtmlFile(gettotaltext(), tempHtmlFullPath);
+
+            // レンダリングペインをリロードする。
             renderpanecommand ( {
                 target: renderPaneName,
                 url: "javascript: location.reload()"
@@ -159,7 +212,7 @@ function main() {
             );
         }
 
-    }, 1000);
+    }, intervalTickTime);
 }
 
 main();
