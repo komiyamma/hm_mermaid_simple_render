@@ -1,5 +1,5 @@
 ﻿/*
- * HmMermaidSimpleRender 1.1.0.1
+ * HmMermaidSimpleRender 1.1.0.3
  * CC0 1.0 Universal
  */
 
@@ -55,10 +55,19 @@ document.addEventListener('DOMContentLoaded', () => {
     return htmlTemplate;
 }
 
+
+function makeTempHtmlFullPath() {
+    // TEMPフォルダに、
+    const tempFolder = getenv("temp");
+    return `${tempFolder}\\${basename2()}.html`;
+}
+
+
 // 対象のテキスト内容をutf8で保存
 function saveHtmlFile(fullPath, htmlText) {
     const saveSuccess = hidemaru.saveTextFile(fullPath, htmlText, "utf8");
 }
+
 
 // この関数で true が返ってくる時は、危険性があるので、javascriptのTickで処理をしない。
 function isUnsafeHidemaruOperation() {
@@ -82,19 +91,20 @@ function isUnsafeHidemaruOperation() {
     × 0x00020000 マウスキャプチャ状態(ドラッグ状態)
     ○ 0x00040000 Hidemaru_CheckQueueStatus相当
     */
-    const s = hidemaru.getInputStates();
-    const notAllowedMask = 
+    const states = hidemaru.getInputStates();
+    const unsafeMask = 
           0x00000004 | 0x00000008 | 0x00000010 | 
           0x00000200 | 0x00000400 | 0x00000800 | 
           0x00001000 | 0x00020000;
 
-    return (s & notAllowedMask) != 0;
+    return (states & unsafeMask) != 0;
 }
+
 
 // 前回のチェックと比べてファイルの最終更新日時は変化したのか？
 let fso = null;
 let lastFileModified = 0;
-function getFileLastModifyUpdated() {
+function isFileLastModifyUpdated() {
     if (!fso) { fso = hidemaru.createObject("Scripting.FileSystemObject"); }
 
     let isDiff = false;
@@ -115,11 +125,39 @@ function getFileLastModifyUpdated() {
     return isDiff;
 }
 
-// メッセージをアウトプット枠へと出力
-function writeLineOutputPane(msg) {
-    let dll = loaddll("HmOutputPane.dll");
-    dll.dllFuncW.OutputW(hidemaru.getCurrentWindowHandle(), msg + "\r\n");
+
+// 前回のチェックと比べて秀丸のupdatecountは変化したのか？
+let lastUpdateCount = 0;
+function isUpdateCountChange() {
+    // 何も更新してないっぽいならパス。CPU負担を軽くするためのもの。
+    const currentUpdateCount = updatecount();
+    if (lastUpdateCount == currentUpdateCount) {
+        return false;
+    }
+
+    // 最後にチェックしたupdatecountを保存しておく。
+    lastUpdateCount = currentUpdateCount;
+    return true;
 }
+
+
+// 前回のチェックと比べてTickは本当に指定の時間間隔以上経過したのか？
+let lastTickCount = tickcount(); // Windowsが起動されてからの経過時間
+function isTickTimeElapsed(minIntervalTickTime) {
+    const currentTickCount = tickcount();
+
+    // 経過した時間をもとめる。
+    const elapsedTickTime = currentTickCount - lastTickCount;
+
+    // それが指定のものよりも遥かに小さい(半分すらない)なら、早いタイミングでTickが来すぎているので、一旦スキップ
+    if (elapsedTickTime < minIntervalTickTime) {
+        return false;
+    }
+
+    lastTickCount = currentTickCount;
+    return true;
+}
+
 
 // 現在秀丸で編集しているテキストを、テンプレートを利用して、TEMPフォルダに保存
 function saveCurrentTextToTempHtmlFile(tempHtmlFullPath) {
@@ -138,12 +176,18 @@ function saveCurrentTextToTempHtmlFile(tempHtmlFullPath) {
 }
 
 
+// メッセージをアウトプット枠へと出力
+function writeLineOutputPane(msg) {
+    let dll = loaddll("HmOutputPane.dll");
+    dll.dllFuncW.OutputW(hidemaru.getCurrentWindowHandle(), msg + "\r\n");
+}
+
+
 // メインの処理
 function main() {
 
-    // TEMPフォルダに、
-    const tempFolder = getenv("temp");
-    const tempHtmlFullPath = `${tempFolder}\\${basename2()}.html`;
+    // TEMPフォルダに、合成ファイル用ファイルを用意するのだが、そのためのフルパス
+    const tempHtmlFullPath = makeTempHtmlFullPath();
 
     // 現在の秀丸のテキスト内容をもとにHTMLテンプレートを当てはめて、TEMPフォルダにファイルを保存
     saveCurrentTextToTempHtmlFile(tempHtmlFullPath);
@@ -152,13 +196,16 @@ function main() {
     writeLineOutputPane(`${tempHtmlFullPath}`);
 
     // 開始時点を最終更新時とする。
-    getFileLastModifyUpdated();
+    isFileLastModifyUpdated();
+
+    // Windowsのパス型をURLの形に直す
+    let hrefURL = new URL(tempHtmlFullPath).href;
 
     // 指定のパラメータでレンダーペインを開く。browserpanecommand にして、targetを "_each" にしてもほぼ同じこと
     renderpanecommand ( 
     {
         target: renderPaneName,
-        url : tempHtmlFullPath,
+        url : hrefURL,
         watch: 0,
         watchsave: 0,
         initialize: "async",
@@ -170,10 +217,6 @@ function main() {
     const intervalTickTime = 1000; // hidemaru.setIntervalの間隔。この間隔は担保されないので注意。
                                    // (実行の予約は概ね正確にこの間隔となるが、関数の実行は全く違う)
 
-    let lastUpdateCount = 0; // 
-
-    let lastTickCount = tickcount(); // Windowsが起動されてからの経過時間
-
     // 指定の間隔で
     intervalHandle = hidemaru.setInterval(() => {
 
@@ -183,37 +226,21 @@ function main() {
             return;
         }
 
-
         // ----------------------------------------------------------------
-        // 何も更新してないっぽいならパス。CPU負担を軽くするためのもの。
-        const currentUpdateCount = updatecount();
-        if (lastUpdateCount == currentUpdateCount) {
+        // 秀丸上で何も更新してないっぽいならパス。CPU負担を軽くするためのもの。
+        if (!isUpdateCountChange()) {
             return;
         }
 
-        // 最後にチェックしたupdatecountを保存しておく。
-        lastUpdateCount = currentUpdateCount;
-
-
         // ----------------------------------------------------------------
-        // 本当にタイム差分が経過していることをチェックする。
-        const currentTickCount = tickcount();
-
-        // 経過した時間をもとめる。
-        const elapsedTickTime = currentTickCount - lastTickCount;
-
-        // それが指定のものよりも遥かに小さい(半分すらない)なら、早いタイミングでTickが来すぎているので、一旦スキップ
-        if (elapsedTickTime < (intervalTickTime * 0.5)) {
+        // 実際の経過時間が最低でも、intervalTickTime で指定されている時間の0.8倍は経過していること
+        if (!isTickTimeElapsed(intervalTickTime * 0.8)) {
             return;
         }
-
-        lastTickCount = currentTickCount;
-
 
         // ----------------------------------------------------------------
         // 現在編集中のファイルの最終書き込のタイムスタンプが変化しか？
-        const isFileLastModifyUpdated = getFileLastModifyUpdated();
-        if (isFileLastModifyUpdated) {
+        if (isFileLastModifyUpdated()) {
 
             // 現在の秀丸のテキスト内容をもとにHTMLテンプレートを当てはめて、TEMPフォルダにファイルを保存
             saveCurrentTextToTempHtmlFile(tempHtmlFullPath);
