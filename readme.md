@@ -25,3 +25,5 @@ text1 を編集して保存してみましょう。
 「何らかのフォーマットに則ったテキスト」を「ネット上のjsライブラリを使って描画」と  
 いったスタイルの最小サンプルを兼ねます。
 
+https://秀丸マクロ.net?page=nobu_tool_hm_webview2_renderpane_pattern_save
+
