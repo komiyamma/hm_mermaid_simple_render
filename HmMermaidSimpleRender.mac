@@ -1,5 +1,5 @@
 ﻿/*
- * HmMermaidSimpleRender 1.1.0.3
+ * HmMermaidSimpleRender 1.1.0.4
  * CC0 1.0 Universal
  */
 
@@ -127,7 +127,7 @@ function isFileLastModifyUpdated() {
 
 
 // 前回のチェックと比べて秀丸のupdatecountは変化したのか？
-let lastUpdateCount = 0;
+let lastUpdateCount = updatecount();
 function isUpdateCountChange() {
     // 何も更新してないっぽいならパス。CPU負担を軽くするためのもの。
     const currentUpdateCount = updatecount();
